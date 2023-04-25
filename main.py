@@ -18,16 +18,114 @@ def installIfNotExist(required):
     print("\n--Required packages already satisfied.--\n")
 
 
-required = {"librosa", "numpy", "hmmlearn", "sklearn", "pathlib"}
+required = {"librosa", "numpy", "hmmlearn", "sklearn", "pathlib", "matplotlib", "seaborn"}
 installIfNotExist(required)
 
 warnings.simplefilter('ignore') # silence warning
 logging.getLogger("hmmlearn").setLevel("CRITICAL") # silence warning for models
+
+####################################Visulization############################################
+
+def visualize_1():
+    import librosa.display
+    import matplotlib.pyplot as plt
+
+    # Define parameters
+    n_fft = 256
+    hop_length = 256
+    n_mels = 12
+
+    # Load audio file
+    audio_file = 'train/1/1.wav'
+    y, sr = librosa.load(audio_file)
+
+    # Compute Mel filterbank
+    mel_filterbank = librosa.filters.mel(sr=8000, n_fft=n_fft, n_mels=n_mels)
+
+    # Visualize Mel filterbank as a heatmap
+    plt.figure(figsize=(10, 4))
+    librosa.display.specshow(mel_filterbank, x_axis='linear', cmap='coolwarm')
+    plt.xlabel('Frequency (Hz)')
+    plt.ylabel('Mel bin')
+    plt.title('Mel filterbank')
+    plt.tight_layout()
+    plt.show()
+
+
+
+def visualize_2():
+    import librosa.display
+    import matplotlib.pyplot as plt
+
+    # Load audio file
+    audio_file = 'train/1/1.wav'
+    y, sr = librosa.load(audio_file)
+
+    # Compute MFCC coefficients
+    mfcc = librosa.feature.mfcc(y=y, sr=8000, n_mfcc=12)
+
+    # Visualize MFCC coefficients as a heatmap
+    plt.figure(figsize=(10, 4))
+    librosa.display.specshow(mfcc, x_axis='time', cmap='coolwarm')
+    plt.title('MFCC')
+    plt.tight_layout()
+    plt.show()
+
+
+def show_data_sets():
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    # Define the training sets and files for each GMM-HMM model
+    training_sets = {f"train/{i}" for i in range(1, 17)}
+    training_files = [['5.wav', '4.wav', '1.wav', '3.wav', '2.wav']]*16
+    training_files[13] = ['6.wav', '7.wav', '5.wav', '4.wav', '1.wav', '3.wav', '2.wav']
+
+    N_states = [6]*80
+    for i in (12, 13, 14, 15, 16):
+        start_index = (i - 1) * 5
+        end_index = start_index + 7
+        N_states[start_index:end_index] = [3]*7
+
+    train_stats = {}
+    for i, files in enumerate(training_files, start=1):
+        stats = {}
+        for file in files:
+            stats[file] = N_states[(i-1)*5 + files.index(file)]
+        train_stats[f"train/{i}"] = stats
+
+    fig, axs = plt.subplots(4, 4, figsize=(12, 10), sharex=True, sharey=True)
+    fig.text(0.04, 0.5, 'N State', va='center', rotation='vertical')
+    for i, (training_set, stats) in enumerate(train_stats.items()):
+        row = i // 4
+        col = i % 4
+        ax = axs[row, col]
+        ax.bar(list(stats.keys()), list(stats.values()), width=0.5, align='center')
+        ax.set_title(training_set)
+        ax.tick_params(axis='x', rotation=90)
+    plt.suptitle('Distribution of Number of States for GMM-HMM Models', fontsize=16, y=1.05)
+    plt.show()
+
+def plot_test_result(ax, test_files, det_lab, decode):
+    matched_labels_dict = {test_files[i] : det_lab[i] for i in range(len(test_files)) if int(test_files[i] // 7) + 1 == det_lab[i]}
+    failed_labels_dict = {test_files[i] : det_lab[i] for i in range(len(test_files)) if int(test_files[i] // 7) + 1 != det_lab[i]}
+    
+    ax.scatter(matched_labels_dict.keys(), matched_labels_dict.values(), label="Matched Test Audio", color="blue")
+    ax.scatter(failed_labels_dict.keys(), failed_labels_dict.values(), label="Failed Test Audio", color="red")
+    ax.legend()
+
+    ax.set_xlabel('Test Audio #')
+    ax.set_ylabel('Detected Label')
+
+    # Add the decode value as a text box
+    ax.text(0.8, 0.2, f"Acc = {round(decode, 3)}%", ha='center', va='center', transform=ax.transAxes, fontsize=12)
+
 #######################################################################################################
 
 import librosa
 import numpy as np
 import os
+import matplotlib.pyplot as plt
 from pathlib import Path
 from hmmlearn.hmm import GMMHMM
 from sklearn.cluster import KMeans
@@ -104,46 +202,6 @@ def creat_GMM(mus, sigmas, ws):
     return gmm
 
 
-def init_hmm(collect_fea, N_state, N_mix):
-    model_GMM_hmm = dict()
-
-    # initialize from state 0
-    pi = np.zeros(N_state)
-    pi[0] = 1
-    model_GMM_hmm["pi"] = pi
-
-    # define Transition probability
-    A = np.zeros([N_state, N_state])
-    for i in range(N_state - 1):
-        A[i, i] = 0.5
-        A[i, i + 1] = 0.5
-    A[-1, -1] = 1
-    model_GMM_hmm["A"] = A
-
-    feas = collect_fea
-    len_feas = []
-    for fea in feas:
-        len_feas.append(np.shape(fea)[0])
-
-    states = []
-    for s in range(N_state):
-        print("STATE ----------------", s)
-        sub_fea_collect = []
-        # distribute every state with features
-        for fea, T in zip(feas, len_feas):
-            T_s = int(T / N_state) * s
-            T_e = (int(T / N_state)) * (s + 1)
-
-            sub_fea_collect.append(fea[T_s:T_e])
-        ws, mus, sigmas = gen_para_GMM(sub_fea_collect, N_mix)
-        gmm = creat_GMM(mus, sigmas, ws)
-        states.append(gmm)
-
-    model_GMM_hmm["S"] = states
-
-    return model_GMM_hmm
-
-
 def extract_MFCC(wav_file):
     # set sr to 8000
     y, sr = librosa.load(wav_file, sr=8000)
@@ -158,7 +216,6 @@ def extract_MFCC(wav_file):
     fea = np.concatenate([fea.T, fea_d.T], axis=1)
 
     return fea
-
 
 def generate_model_from_data(train_path):   
     models = None
@@ -205,6 +262,10 @@ def test_model(test_dir, models, train_start, train_end):
     test_end = train_end * 7
     test_start = train_start * 7
     count = 0
+
+    test_files = []
+    det_lab = []
+
     for i in range(test_start, test_end):
         wav_file = os.path.join(test_dir, str(i + 1) + ".wav")
         fea = extract_MFCC(wav_file)
@@ -218,9 +279,15 @@ def test_model(test_dir, models, train_start, train_end):
         lab_det = np.argmax(scores) + 1 + train_start
         if lab_det == lab_true:
             count = count + 1
-
+        
+        test_files.append(i)
+        det_lab.append(int(lab_det))
         print("true lab  %d det lab %d" % (lab_true, lab_det))
-    print("decode  %.2f   " % (count * 100 / (test_end - test_start)))
+    
+    decode = count * 100 / (test_end - test_start)
+    print("decode  %.2f   " % decode)
+    
+    return test_files, det_lab, decode
 
 
 if __name__ == "__main__":
@@ -232,8 +299,18 @@ if __name__ == "__main__":
 
     # Test the model
     # 1-11 is two words
-    test_model(test_dir, all_models[0: 11], 0, 10)
+    test_files2, det_lab2, decode2 = test_model(test_dir, all_models[0: 11], 0, 10)
     # 12-16 is single word
-    test_model(test_dir, all_models[11: 16], 11, 16)
+    test_files1, det_lab1, decode1 = test_model(test_dir, all_models[11: 16], 11, 16)
 
-    
+    # plot the test results
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 6))
+    ax1.set_title('Double-Words')
+    ax2.set_title('Single-Words')
+    plot_test_result(ax1, test_files2, det_lab2, decode2)
+    plot_test_result(ax2, test_files1, det_lab1, decode1)
+    plt.show()
+
+
+# visulization the training dataset
+# show_data_sets()
