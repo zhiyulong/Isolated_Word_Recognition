@@ -1,9 +1,34 @@
+############################ Check and setup running enviroment at first ###############################
+import pkg_resources
+import subprocess
+import sys
+import warnings
+
+# check if the packages are installed
+def installIfNotExist(required):
+  installed = {pkg.key for pkg in pkg_resources.working_set}
+  missing = required - installed
+
+  if missing:
+    print(">> Installing the missing packages: ", missing)
+    subprocess.check_call([sys.executable, '-m', 'pip', 'install'] + list(missing), stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+    print("\n--Finished checking required packages.--\n")
+  else:
+    print("\n--Required packages already satisfied.--\n")
+
+
+required = {"librosa", "numpy", "hmmlearn", "sklearn", "pathlib"}
+installIfNotExist(required)
+
+warnings.simplefilter('ignore') # ignore warning
+#######################################################################################################
+
 import librosa
 import numpy as np
 import os
+from pathlib import Path
 from hmmlearn.hmm import GMMHMM
 from sklearn.cluster import KMeans
-
 
 def init_para_hmm(collect_fea, N_state, N_mix):
     pi = np.zeros(N_state)
@@ -37,6 +62,9 @@ def init_para_hmm(collect_fea, N_state, N_mix):
 
 
 def run_kmeans(dataset, K, m=20):
+    """
+    Applu K-Means for clustering data
+    """
     labs = KMeans(n_clusters=K, random_state=9).fit_predict(dataset)
     return labs
 
@@ -129,20 +157,16 @@ def extract_MFCC(wav_file):
 
     return fea
 
-
-if __name__ == "__main__":
-    models = []
-    train_path = "train"
-    train_scale = 15
-    test_scale = train_scale * 7
-    for i in range(1, train_scale + 1):
-
-        # find the document
-        path = os.path.join(train_path, str(i))
+def generate_model_from_data(train_path):   
+    models = {}
+    for path, dirs, files in os.walk(train_path):
+        if (len(files) == 0): 
+            continue
+        dirs.sort()
+        print(f"Training GMM-HMM for {path}: {files}")
         collect_fea = []
         len_feas = []
-        dirs = os.listdir(path)
-        for file in dirs:
+        for file in files:
             # find .wav and extract the feature
             if file.split(".")[-1] == "wav":
                 wav_file = os.path.join(path, file)
@@ -162,16 +186,15 @@ if __name__ == "__main__":
         train_GMMHMM.means_ = hmm_means
         train_GMMHMM.covars_ = hmm_sigmas
 
-        print("train GMM-HMM", i)
         train_GMMHMM.fit(np.concatenate(collect_fea, axis=0), np.array(len_feas))
-        models.append(train_GMMHMM)
-    np.save("models_hmm.npy", models)
+        models.update({path:train_GMMHMM})
+    return(models)
+    
+def test_model(test_dir, models):
 
-    # test model
-    test_dir = "test"
+    train_scale = len(models)
+    test_scale = train_scale * 7
     count = 0
-    count2 = 0
-    models = np.load("models_hmm.npy", allow_pickle=True)
 
     for i in range(test_scale):
         wav_file = os.path.join(test_dir, str(i + 1) + ".wav")
@@ -179,15 +202,24 @@ if __name__ == "__main__":
 
         lab_true = int(i // 7) + 1
         scores = []
-        scores2 = []
         for m in range(1, train_scale + 1):
-            model = models[m - 1]
+            model = models[f"train/{m}"]
             score, _ = model.decode(fea)
             scores.append(score)
-
         lab_det = np.argmax(scores) + 1
         if lab_det == lab_true:
             count = count + 1
-
         print("true lab  %d det lab %d" % (lab_true, lab_det))
+    
     print("decode  %.2f   " % (count * 100 / test_scale))
+
+
+if __name__ == "__main__":
+    train_dir = "train"
+    test_dir = "test"
+    # Generate model from the training data
+    models = generate_model_from_data(train_dir)
+    # Test the model
+    test_model(test_dir, models)
+
+    
