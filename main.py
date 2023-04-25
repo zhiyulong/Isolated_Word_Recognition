@@ -1,4 +1,5 @@
 ############################ Check and setup running enviroment at first ###############################
+import logging
 import pkg_resources
 import subprocess
 import sys
@@ -20,7 +21,8 @@ def installIfNotExist(required):
 required = {"librosa", "numpy", "hmmlearn", "sklearn", "pathlib"}
 installIfNotExist(required)
 
-warnings.simplefilter('ignore') # ignore warning
+warnings.simplefilter('ignore') # silence warning
+logging.getLogger("hmmlearn").setLevel("CRITICAL") # silence warning for models
 #######################################################################################################
 
 import librosa
@@ -157,13 +159,13 @@ def extract_MFCC(wav_file):
 
     return fea
 
-def generate_model_from_data(train_path, train_scale):   
-    models = [None] * train_scale
+
+def generate_model_from_data(train_path):   
+    models = None
     for path, dirs, files in os.walk(train_path):
-        if (len(files) == 0 or int(path.split("/")[-1]) > train_scale):
+        if (len(files) == 0):
+            models = [None] * len(dirs)
             continue
-        print(f"Training GMM-HMM for {path}: {files}")
-        
         collect_fea = []
         len_feas = []
         for file in files:
@@ -173,9 +175,19 @@ def generate_model_from_data(train_path, train_scale):
                 fea = extract_MFCC(wav_file)
                 collect_fea.append(fea)
                 len_feas.append(np.shape(fea)[0])
-        # initialize the model
-        N_state = 4
+         
+        # initialize model i
+        i = int(path.split("/")[1]) - 1
+        # how many states for a word and how many mix of a state
+        # 1-11 is two words and 12-16 is single word
+        N_state = 6
         N_mix = 3
+        if (i + 1) in (12, 13, 14, 15, 16):
+            print(f"Training GMM-HMM for {path} (single word, N_state = 3): {files}")
+            N_state = 3
+        else:
+            print(f"Training GMM-HMM for {path} (double word, N_state = 6): {files}")
+
         pi, A, hmm_means, hmm_sigmas, hmm_ws = init_para_hmm(collect_fea, N_state, N_mix)
         train_GMMHMM = GMMHMM(n_components=N_state, n_mix=N_mix, covariance_type='diag', n_iter=90, tol=1e-5,
                               verbose=False, init_params="", params="tmcw", min_covar=0.0001)
@@ -186,37 +198,42 @@ def generate_model_from_data(train_path, train_scale):
         train_GMMHMM.covars_ = hmm_sigmas
         train_GMMHMM.fit(np.concatenate(collect_fea, axis=0), np.array(len_feas))
         # store the model for current trainning set
-        models[int(path.split("/")[1]) - 1] = train_GMMHMM
+        models[i] = train_GMMHMM
     return(models)
-    
-def test_model(test_dir, models, test_scale):
+
+def test_model(test_dir, models, train_start, train_end):
+    test_end = train_end * 7
+    test_start = train_start * 7
     count = 0
-    for i in range(test_scale):
+    for i in range(test_start, test_end):
         wav_file = os.path.join(test_dir, str(i + 1) + ".wav")
         fea = extract_MFCC(wav_file)
 
         lab_true = int(i // 7) + 1
         scores = []
-        for m in range(1, len(models) + 1):
-            model = models[m - 1]
+        for model in models:
             score, _ = model.decode(fea)
             scores.append(score)
-        lab_det = np.argmax(scores) + 1
+
+        lab_det = np.argmax(scores) + 1 + train_start
         if lab_det == lab_true:
             count = count + 1
+
         print("true lab  %d det lab %d" % (lab_true, lab_det))
-    
-    print("decode  %.2f   " % (count * 100 / test_scale))
+    print("decode  %.2f   " % (count * 100 / (test_end - test_start)))
 
 
 if __name__ == "__main__":
     train_dir = "train"
     test_dir = "test"
-    train_scale = 15
-    test_scale = train_scale * 7
+
     # Generate model from the training data
-    models = generate_model_from_data(train_dir, train_scale)
+    all_models = generate_model_from_data(train_dir)
+
     # Test the model
-    test_model(test_dir, models, test_scale)
+    # 1-11 is two words
+    test_model(test_dir, all_models[0: 11], 0, 10)
+    # 12-16 is single word
+    test_model(test_dir, all_models[11: 16], 11, 16)
 
     
