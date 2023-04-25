@@ -157,13 +157,13 @@ def extract_MFCC(wav_file):
 
     return fea
 
-def generate_model_from_data(train_path):   
-    models = {}
+def generate_model_from_data(train_path, train_scale):   
+    models = [None] * train_scale
     for path, dirs, files in os.walk(train_path):
-        if (len(files) == 0): 
+        if (len(files) == 0 or int(path.split("/")[-1]) > train_scale):
             continue
-        dirs.sort()
         print(f"Training GMM-HMM for {path}: {files}")
+        
         collect_fea = []
         len_feas = []
         for file in files:
@@ -173,7 +173,6 @@ def generate_model_from_data(train_path):
                 fea = extract_MFCC(wav_file)
                 collect_fea.append(fea)
                 len_feas.append(np.shape(fea)[0])
-
         # initialize the model
         N_state = 4
         N_mix = 3
@@ -185,25 +184,21 @@ def generate_model_from_data(train_path):
         train_GMMHMM.weights_ = hmm_ws
         train_GMMHMM.means_ = hmm_means
         train_GMMHMM.covars_ = hmm_sigmas
-
         train_GMMHMM.fit(np.concatenate(collect_fea, axis=0), np.array(len_feas))
-        models.update({path:train_GMMHMM})
+        # store the model for current trainning set
+        models[int(path.split("/")[1]) - 1] = train_GMMHMM
     return(models)
     
-def test_model(test_dir, models):
-
-    train_scale = len(models)
-    test_scale = train_scale * 7
+def test_model(test_dir, models, test_scale):
     count = 0
-
     for i in range(test_scale):
         wav_file = os.path.join(test_dir, str(i + 1) + ".wav")
         fea = extract_MFCC(wav_file)
 
         lab_true = int(i // 7) + 1
         scores = []
-        for m in range(1, train_scale + 1):
-            model = models[f"train/{m}"]
+        for m in range(1, len(models) + 1):
+            model = models[m - 1]
             score, _ = model.decode(fea)
             scores.append(score)
         lab_det = np.argmax(scores) + 1
@@ -217,9 +212,11 @@ def test_model(test_dir, models):
 if __name__ == "__main__":
     train_dir = "train"
     test_dir = "test"
+    train_scale = 15
+    test_scale = train_scale * 7
     # Generate model from the training data
-    models = generate_model_from_data(train_dir)
+    models = generate_model_from_data(train_dir, train_scale)
     # Test the model
-    test_model(test_dir, models)
+    test_model(test_dir, models, test_scale)
 
     
