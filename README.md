@@ -1,5 +1,12 @@
 # Isolated Word Recognition 
 
+Code: [main.py](https://github.com/zhiyulong/Isolated_Word_Recognition/blob/main/main.py)
+
+- Generate GMM-HMM models for each training set.
+- Test the GMM-HMM models with the testing data. 
+- Visualization for data analysis
+- Print the Training and Testing process while running the code.
+- Produce plots showing the models performance and comparing the test result for different features.
 
 ## Proposed Method
 
