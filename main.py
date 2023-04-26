@@ -21,10 +21,11 @@ def installIfNotExist(required):
 required = {"librosa", "numpy", "hmmlearn", "sklearn", "pathlib", "matplotlib", "seaborn"}
 installIfNotExist(required)
 
-warnings.simplefilter('ignore') # silence warning
+# silence warning
+warnings.simplefilter('ignore')
 logging.getLogger("hmmlearn").setLevel("CRITICAL") # silence warning for models
 
-####################################Visulization############################################
+################################Data analysis and visulization####################################
 
 def visualize_1():
     import librosa.display
@@ -119,6 +120,21 @@ def plot_test_result(ax, test_files, det_lab, decode):
 
     # Add the decode value as a text box
     ax.text(0.8, 0.2, f"Acc = {round(decode, 3)}%", ha='center', va='center', transform=ax.transAxes, fontsize=12)
+
+
+def plot_confusion_matrix(true_lab, det_lab):
+    import matplotlib.pyplot as plt
+    from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
+
+    cm = confusion_matrix(true_lab, det_lab)
+
+    # Plot the confusion matrix
+    classes = [f"train/{i}" for i in range(1, 17)]
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=classes)
+    disp.plot()
+    plt.xticks(rotation=90)
+    plt.show()
+
 
 #######################################################################################################
 
@@ -264,6 +280,7 @@ def test_model(test_dir, models, train_start, train_end):
     count = 0
 
     test_files = []
+    true_lab = []
     det_lab = []
 
     for i in range(test_start, test_end):
@@ -281,27 +298,35 @@ def test_model(test_dir, models, train_start, train_end):
             count = count + 1
         
         test_files.append(i)
+        true_lab.append(lab_true)
         det_lab.append(int(lab_det))
         print("true lab  %d det lab %d" % (lab_true, lab_det))
     
     decode = count * 100 / (test_end - test_start)
     print("decode  %.2f   " % decode)
     
-    return test_files, det_lab, decode
+    return test_files, true_lab, det_lab, decode
 
 
 if __name__ == "__main__":
+    # visulization the training dataset
+    # show_data_sets()
+
     train_dir = "train"
     test_dir = "test"
 
     # Generate model from the training data
     all_models = generate_model_from_data(train_dir)
 
+    # save models to file for development 
+    # np.save("models_hmm.npy", all_models)
+    # all_models = np.load("models_hmm.npy", allow_pickle=True)
+
     # Test the model
     # 1-11 is two words
-    test_files2, det_lab2, decode2 = test_model(test_dir, all_models[0: 11], 0, 10)
+    test_files2, true_lab2, det_lab2, decode2 = test_model(test_dir, all_models[0: 11], 0, 10)
     # 12-16 is single word
-    test_files1, det_lab1, decode1 = test_model(test_dir, all_models[11: 16], 11, 16)
+    test_files1, true_lab1, det_lab1, decode1 = test_model(test_dir, all_models[11: 16], 11, 16)
 
     # plot the test results
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 6))
@@ -311,6 +336,9 @@ if __name__ == "__main__":
     plot_test_result(ax2, test_files1, det_lab1, decode1)
     plt.show()
 
+    # show the confusion matrix
 
-# visulization the training dataset
-# show_data_sets()
+    # Get the true labels
+    true_lab = true_lab2 + true_lab1
+    det_lab = det_lab2 + det_lab1
+    plot_confusion_matrix(true_lab, det_lab)
